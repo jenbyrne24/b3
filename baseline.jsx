@@ -1,7 +1,7 @@
 // baseline.jsx
 // Basic ExtendScript for Adobe Premiere Pro.
-// Prompts the user to select a folder with two video files and one MP3 playlist.
-// Imports the files and creates a new sequence as a starting point.
+// Prompts the user to select a workout folder containing two MP4 files and an MP3 playlist.
+// The script imports these assets, creates a sequence, appends the second video, adds the playlist audio, and exports via Adobe Media Encoder.
 
 (function () {
     var project = app.project;
@@ -13,19 +13,15 @@
         return;
     }
 
-    var filesToImport = [];
-    var file1 = File(inputFolder.fsName + "/video1.mp4");
-    var file2 = File(inputFolder.fsName + "/video2.mp4");
-    var playlist = File(inputFolder.fsName + "/playlist.mp3");
-
-    if (file1.exists) { filesToImport.push(file1.fsName); }
-    if (file2.exists) { filesToImport.push(file2.fsName); }
-    if (playlist.exists) { filesToImport.push(playlist.fsName); }
-
-    if (filesToImport.length === 0) {
-        alert("No expected files found in folder.");
+    // Collect two MP4 files and an MP3 file
+    var videoFiles = inputFolder.getFiles("*.mp4");
+    var audioFiles = inputFolder.getFiles("*.mp3");
+    if (videoFiles.length < 2 || audioFiles.length === 0) {
+        alert("Folder must contain at least two MP4 files and one MP3 file.");
         return;
     }
+
+    var filesToImport = [videoFiles[0].fsName, videoFiles[1].fsName, audioFiles[0].fsName];
 
     project.importFiles(filesToImport, false, project.rootItem, false);
 
@@ -39,15 +35,38 @@
     if (items.length > 0) {
         var seqName = "Workout Sequence";
         var seq = project.createNewSequenceFromClips(seqName, [items[0]], project.rootItem);
-        if (seq) {
-            if (items.length > 1) {
-                seq.videoTracks[0].overwriteClip(items[1], seq.videoTracks[0].end);
-            }
-            if (items.length > 2) {
-                seq.audioTracks[0].overwriteClip(items[2], 0);
-            }
-        } else {
+        if (!seq) {
             alert("Failed to create sequence.");
+            return;
+        }
+
+        // Append second video and add playlist audio
+        if (items.length > 1) {
+            seq.videoTracks[0].overwriteClip(items[1], seq.videoTracks[0].end);
+        }
+        if (items.length > 2) {
+            seq.audioTracks[0].overwriteClip(items[2], 0);
+        }
+
+        // Export via Adobe Media Encoder
+        var outputFolder = Folder.selectDialog("Select output folder");
+        if (!outputFolder) {
+            alert("No output folder selected.");
+            return;
+        }
+        var outputPath = outputFolder.fsName + "/" + inputFolder.name + "_final.mp4";
+        var presetFile = File.openDialog("Select AME preset (.epr)");
+        if (!presetFile) {
+            alert("No preset selected.");
+            return;
+        }
+
+        app.encoder.launchEncoder();
+        var jobID = app.encoder.encodeSequence(seq, outputPath, presetFile.fsName, app.encoder.ENCODE_WORKAREA);
+        if (jobID === 0) {
+            alert("Failed to start encode job.");
+        } else {
+            alert("Encoding started: " + outputPath);
         }
     } else {
         alert("No items imported.");
